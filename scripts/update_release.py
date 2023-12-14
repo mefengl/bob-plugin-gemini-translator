@@ -15,7 +15,7 @@ def update_appcast(version, desc):
         'desc': desc,
         'sha256': file_hash,
         'url': f'https://github.com/yetone/bob-plugin-openai-translator/releases/download/v{version}/{release_file.name}',
-        'minBobVersion': '1.8.0'
+        'minBobVersion': '0.5.0'
     }
     appcast_file = Path('appcast.json')
     if appcast_file.is_file():

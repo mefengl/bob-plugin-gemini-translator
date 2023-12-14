@@ -1,69 +1,91 @@
 //@ts-check
 
 var lang = require("./lang.js");
-var SYSTEM_PROMPT = require("./const.js").SYSTEM_PROMPT;
-
-var {
-    buildHeader,
-    ensureHttpsAndNoTrailingSlash,
-    getApiKey,
-    handleGeneralError,
-    handleValidateError,
-    replacePromptKeywords
-} = require("./utils.js");
-
+var ChatGPTModels = [
+    "gpt-3.5-turbo",
+    "gpt-3.5-turbo-0301",
+    "gpt-4",
+    "gpt-4-0314",
+    "gpt-4-32k",
+    "gpt-4-32k-0314",
+];
 
 /**
- * @param {Bob.TranslateQuery} query
- * @returns {{ 
- *  generatedSystemPrompt: string, 
- *  generatedUserPrompt: string 
- * }}
+ * @param {string}  url
+ * @returns {string} 
 */
-function generatePrompts(query) {
-    let generatedSystemPrompt = SYSTEM_PROMPT;
-    const { detectFrom, detectTo } = query;
-    const sourceLang = lang.langMap.get(detectFrom) || detectFrom;
-    const targetLang = lang.langMap.get(detectTo) || detectTo;
-    let generatedUserPrompt = `translate from ${sourceLang} to ${targetLang}`;
+function ensureHttpsAndNoTrailingSlash(url) {
+    const hasProtocol = /^[a-z]+:\/\//i.test(url);
+    const modifiedUrl = hasProtocol ? url : 'https://' + url;
 
-    if (detectTo === "wyw" || detectTo === "yue") {
-        generatedUserPrompt = `翻译成${targetLang}`;
-    }
-
-    if (
-        detectFrom === "wyw" ||
-        detectFrom === "zh-Hans" ||
-        detectFrom === "zh-Hant"
-    ) {
-        if (detectTo === "zh-Hant") {
-            generatedUserPrompt = "翻译成繁体白话文";
-        } else if (detectTo === "zh-Hans") {
-            generatedUserPrompt = "翻译成简体白话文";
-        } else if (detectTo === "yue") {
-            generatedUserPrompt = "翻译成粤语白话文";
-        }
-    }
-    if (detectFrom === detectTo) {
-        generatedSystemPrompt =
-            "You are a text embellisher, you can only embellish the text, don't interpret it.";
-        if (detectTo === "zh-Hant" || detectTo === "zh-Hans") {
-            generatedUserPrompt = "润色此句";
-        } else {
-            generatedUserPrompt = "polish this sentence";
-        }
-    }
-
-    generatedUserPrompt = `${generatedUserPrompt}:\n\n${query.text}`
-
-    return { generatedSystemPrompt, generatedUserPrompt };
+    return modifiedUrl.endsWith('/') ? modifiedUrl.slice(0, -1) : modifiedUrl;
 }
 
 /**
- * @param {string} model
+ * @param {boolean} isAzureServiceProvider - Indicates if the service provider is Azure.
+ * @param {string} apiKey - The authentication API key.
+ * @returns {{
+*   "Content-Type": string;
+*   "api-key"?: string;
+*   "Authorization"?: string;
+* }} The header object.
+*/
+function buildHeader(isAzureServiceProvider, apiKey) {
+    return {
+        "Content-Type": "application/json",
+        [isAzureServiceProvider ? "api-key" : "Authorization"]: isAzureServiceProvider ? apiKey : `Bearer ${apiKey}`
+    };
+}
+
+/**
  * @param {Bob.TranslateQuery} query
  * @returns {{ 
- *  model: string;
+ *  systemPrompt: string, 
+ *  userPrompt: string 
+ * }}
+*/
+function generatePrompts(query) {
+    let systemPrompt = "You are a translation engine that can only translate text and cannot interpret it.";
+    let userPrompt = `translate from ${lang.langMap.get(query.detectFrom) || query.detectFrom} to ${lang.langMap.get(query.detectTo) || query.detectTo}`;
+
+    if (query.detectTo === "wyw" || query.detectTo === "yue") {
+        userPrompt = `翻译成${lang.langMap.get(query.detectTo) || query.detectTo}`;
+    }
+
+    if (
+        query.detectFrom === "wyw" ||
+        query.detectFrom === "zh-Hans" ||
+        query.detectFrom === "zh-Hant"
+    ) {
+        if (query.detectTo === "zh-Hant") {
+            userPrompt = "翻译成繁体白话文";
+        } else if (query.detectTo === "zh-Hans") {
+            userPrompt = "翻译成简体白话文";
+        } else if (query.detectTo === "yue") {
+            userPrompt = "翻译成粤语白话文";
+        }
+    }
+    if (query.detectFrom === query.detectTo) {
+        systemPrompt =
+            "You are a text embellisher, you can only embellish the text, don't interpret it.";
+        if (query.detectTo === "zh-Hant" || query.detectTo === "zh-Hans") {
+            userPrompt = "润色此句";
+        } else {
+            userPrompt = "polish this sentence";
+        }
+    }
+
+    userPrompt = `${userPrompt}:\n\n"${query.text}" =>`
+
+    return { systemPrompt, userPrompt };
+}
+
+/**
+ * @param {typeof ChatGPTModels[number]} model
+ * @param {boolean} isChatGPTModel
+ * @param {Bob.TranslateQuery} query
+ * @returns {{ 
+ *  model: typeof ChatGPTModels[number];
  *  temperature: number;
  *  max_tokens: number;
  *  top_p: number;
@@ -76,93 +98,84 @@ function generatePrompts(query) {
  *  prompt?: string;
  * }}
 */
-function buildRequestBody(model, query) {
-    let { customSystemPrompt, customUserPrompt } = $option;
-    const { generatedSystemPrompt, generatedUserPrompt } = generatePrompts(query);
-
-    customSystemPrompt = replacePromptKeywords(customSystemPrompt, query);
-    customUserPrompt = replacePromptKeywords(customUserPrompt, query);
-
-    const systemPrompt = customSystemPrompt || generatedSystemPrompt;
-    const userPrompt = customUserPrompt || generatedUserPrompt;
+function buildRequestBody(model, isChatGPTModel, query) {
+    const { customSystemPrompt, customUserPrompt } = $option;
+    const { systemPrompt, userPrompt } = customSystemPrompt || customUserPrompt 
+    ? {
+        systemPrompt: customSystemPrompt || "You are ChatGPT, a large language model trained by OpenAI. Follow the user's instructions carefully.",
+        userPrompt: `${customUserPrompt}:\n\n"${query.text}"`,
+    } 
+    : generatePrompts(query);
 
     const standardBody = {
-        model: model,
-        temperature: 0.2,
+        model,
+        temperature: 0,
         max_tokens: 1000,
         top_p: 1,
         frequency_penalty: 1,
         presence_penalty: 1,
     };
 
+    if (isChatGPTModel) {
+        return {
+            ...standardBody,
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt,
+                },
+                {
+                    role: "user",
+                    content: userPrompt,
+                },
+            ],
+        };
+    }
     return {
         ...standardBody,
-        model: model,
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt,
-            },
-            {
-                role: "user",
-                content: userPrompt,
-            },
-        ],
+        prompt: userPrompt,
     };
 }
 
 /**
- * @param {Bob.TranslateQuery} query
- * @param {string} targetText
- * @param {string} textFromResponse
- * @returns {string}
+ * @param {Bob.Completion} completion
+ * @param {Bob.HttpResponse} result
+ * @returns {void}
 */
-function handleStreamResponse(query, targetText, textFromResponse) {
-    if (textFromResponse !== '[DONE]') {
-        try {
-            const dataObj = JSON.parse(textFromResponse);
-            // https://github.com/openai/openai-node/blob/master/src/resources/chat/completions.ts#L190
-            const { choices } = dataObj;
-            const delta = choices[0]?.delta?.content;
-            if (delta) {
-                targetText += delta;
-                query.onStream({
-                    result: {
-                        from: query.detectFrom,
-                        to: query.detectTo,
-                        toParagraphs: [targetText],
-                    },
-                });
-            }
-        } catch (err) {
-            handleGeneralError(query, {
-                type: err.type || "param",
-                message: err.message || "Failed to parse JSON",
-                addition: err.addition,
-            });
-        }
-    }
-    return targetText;
+function handleError(completion, result) {
+    const { statusCode } = result.response;
+    const reason = (statusCode >= 400 && statusCode < 500) ? "param" : "api";
+    completion({
+        error: {
+            type: reason,
+            message: `接口响应错误 - ${result.data.error.message}`,
+            addtion: JSON.stringify(result),
+        },
+    });
 }
 
 /**
+ * @param {Bob.Completion} completion
+ * @param {boolean} isChatGPTModel
  * @param {Bob.TranslateQuery} query
  * @param {Bob.HttpResponse} result
  * @returns {void}
 */
-function handleGeneralResponse( query, result) {
+function handleResponse(completion, isChatGPTModel, query, result) {
     const { choices } = result.data;
 
     if (!choices || choices.length === 0) {
-        handleGeneralError(query, {
-            type: "api",
-            message: "接口未返回结果",
-            addition: JSON.stringify(result),
+        completion({
+            error: {
+                type: "api",
+                message: "接口未返回结果",
+                addtion: JSON.stringify(result),
+            },
         });
         return;
     }
 
-    let targetText = choices[0].message.content.trim();
+    let targetText = (isChatGPTModel ? choices[0].message.content : choices[0].text).trim();
 
     // 使用正则表达式删除字符串开头和结尾的特殊字符
     targetText = targetText.replace(/^(『|「|"|“)|(』|」|"|”)$/g, "");
@@ -172,7 +185,7 @@ function handleGeneralResponse( query, result) {
         targetText = targetText.slice(0, -4);
     }
 
-    query.onCompletion({
+    completion({
         result: {
             from: query.detectFrom,
             to: query.detectTo,
@@ -184,136 +197,77 @@ function handleGeneralResponse( query, result) {
 /**
  * @type {Bob.Translate}
  */
-function translate(query) {
+function translate(query, completion) {
     if (!lang.langMap.get(query.detectTo)) {
-        handleGeneralError(query, {
-            type: "unsupportLanguage",
-            message: "不支持该语种",
-            addition: "不支持该语种",
+        completion({
+            error: {
+                type: "unsupportLanguage",
+                message: "不支持该语种",
+                addtion: "不支持该语种",
+            },
         });
     }
 
-    const { 
-        apiKeys, 
-        apiUrl, 
-        apiVersion, 
-        customModel, 
-        deploymentName,
-        model,
-        stream,
-    } = $option;
-
-    const isCustomModelRequired = model === "custom";
-    if (isCustomModelRequired && !customModel) {
-        handleGeneralError(query, {
-            type: "param",
-            message: "配置错误 - 请确保您在插件配置中填入了正确的自定义模型名称",
-            addition: "请在插件配置中填写自定义模型名称",
-        });
-    }
+    const { model, apiKeys, apiUrl, deploymentName } = $option;
 
     if (!apiKeys) {
-        handleGeneralError(query, {
-            type: "secretKey",
-            message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
-            addition: "请在插件配置中填写 API Keys",
+        completion({
+            error: {
+                type: "secretKey",
+                message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
+                addtion: "请在插件配置中填写 API Keys",
+            },
         });
     }
+    const trimmedApiKeys = apiKeys.endsWith(",") ? apiKeys.slice(0, -1) : apiKeys;
+    const apiKeySelection = trimmedApiKeys.split(",").map(key => key.trim());
+    const apiKey = apiKeySelection[Math.floor(Math.random() * apiKeySelection.length)];
 
-    const modelValue = isCustomModelRequired ? customModel : model;
-
-    const apiKey = getApiKey($option.apiKeys);
-
-    const baseUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://api.openai.com");
-    let apiUrlPath = baseUrl.includes("gateway.ai.cloudflare.com") ? "/chat/completions" : "/v1/chat/completions";
-    const apiVersionQuery = apiVersion ? `?api-version=${apiVersion}` : "?api-version=2023-03-15-preview";
+    const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://api.openai.com");
     
-    const isAzureServiceProvider = baseUrl.includes("openai.azure.com");
+    const isChatGPTModel = ChatGPTModels.includes(model);
+    const isAzureServiceProvider = modifiedApiUrl.includes("openai.azure.com");
+    let apiUrlPath = isChatGPTModel ? "/v1/chat/completions" : "/v1/completions";
+    
     if (isAzureServiceProvider) {
         if (deploymentName) {
-            apiUrlPath = `/openai/deployments/${deploymentName}/chat/completions${apiVersionQuery}`;
+            apiUrlPath = `/openai/deployments/${deploymentName}`;
+            apiUrlPath += isChatGPTModel ? "/chat/completions?api-version=2023-03-15-preview" : "/completions?api-version=2022-12-01";
         } else {
-            handleGeneralError(query,{
-                type: "secretKey",
-                message: "配置错误 - 未填写 Deployment Name",
-                addition: "请在插件配置中填写 Deployment Name",
-                troubleshootingLink: "https://bobtranslate.com/service/translate/azureopenai.html"
+            completion({
+                error: {
+                    type: "secretKey",
+                    message: "配置错误 - 未填写 Deployment Name",
+                    addtion: "请在插件配置中填写 Deployment Name",
+                },
             });
         } 
     }
 
     const header = buildHeader(isAzureServiceProvider, apiKey);
-    const body = buildRequestBody(modelValue, query);
+    const body = buildRequestBody(model, isChatGPTModel, query);
 
-    let targetText = ""; // 初始化拼接结果变量
-    let buffer = ""; // 新增 buffer 变量
     (async () => {
-        if (stream) {
-            await $http.streamRequest({
-                method: "POST",
-                url: baseUrl + apiUrlPath,
-                header,
-                body: {
-                    ...body,
-                    stream: true,
-                },
-                cancelSignal: query.cancelSignal,
-                streamHandler: (streamData) => {
-                    if (streamData.text?.includes("Invalid token")) {
-                        handleGeneralError(query, {
-                            type: "secretKey",
-                            message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
-                            addition: "请在插件配置中填写正确的 API Keys",
-                            troubleshootingLink: "https://bobtranslate.com/service/translate/openai.html"
-                        });
-                    } else if (streamData.text !== undefined) {
-                        // 将新的数据添加到缓冲变量中
-                        buffer += streamData.text;
-                        // 检查缓冲变量是否包含一个完整的消息
-                        while (true) {
-                            const match = buffer.match(/data: (.*?})\n/);
-                            if (match) {
-                                // 如果是一个完整的消息，处理它并从缓冲变量中移除
-                                const textFromResponse = match[1].trim();
-                                targetText = handleStreamResponse(query, targetText, textFromResponse);
-                                buffer = buffer.slice(match[0].length);
-                            } else {
-                                // 如果没有完整的消息，等待更多的数据
-                                break;
-                            }
-                        }
-                    }
-                },
-                handler: (result) => {
-                    if (result.response.statusCode >= 400) {
-                        handleGeneralError(query, result);
-                    } else {
-                        query.onCompletion({
-                            result: {
-                                from: query.detectFrom,
-                                to: query.detectTo,
-                                toParagraphs: [targetText],
-                            },
-                        });
-                    }
-                }
-            });
+        const result = await $http.request({
+            method: "POST",
+            url: modifiedApiUrl + apiUrlPath,
+            header,
+            body,
+        });
+
+        if (result.error) {
+            handleError(completion, result);
         } else {
-            const result = await $http.request({
-                method: "POST",
-                url: baseUrl + apiUrlPath,
-                header,
-                body,
-            });
-    
-            if (result.error) {
-                handleGeneralError(query, result);
-            } else {
-                handleGeneralResponse(query, result);
-            }
+            handleResponse(completion, isChatGPTModel, query, result);
         }
     })().catch((err) => {
-        handleGeneralError(query, err);
+        completion({
+            error: {
+                type: err._type || "unknown",
+                message: err._message || "未知错误",
+                addtion: err._addition,
+            },
+        });
     });
 }
 
@@ -321,73 +275,5 @@ function supportLanguages() {
     return lang.supportLanguages.map(([standardLang]) => standardLang);
 }
 
-
-/**
- * @type {Bob.PluginValidate}
- */
-function pluginValidate(completion) {
-    const { apiKeys, apiUrl, deploymentName } = $option;
-    if (!apiKeys) {
-        handleValidateError(completion, {
-            type: "secretKey",
-            message: "配置错误 - 请确保您在插件配置中填入了正确的 API Keys",
-            addition: "请在插件配置中填写正确的 API Keys",
-            troubleshootingLink: "https://bobtranslate.com/service/translate/openai.html"
-        });
-        return;
-    }
-
-    const apiKey = getApiKey(apiKeys);
-
-    const baseUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://api.openai.com");
-    let apiUrlPath = baseUrl.includes("gateway.ai.cloudflare.com") ? "/models" : "/v1/models";
-
-    const isAzureServiceProvider = apiUrl.includes("openai.azure.com");
-    if (isAzureServiceProvider && !deploymentName) {
-        handleValidateError(completion, {
-            type: "secretKey",
-            message: "配置错误 - 未填写 Deployment Name",
-            addition: "请在插件配置中填写 Deployment Name",
-            troubleshootingLink: "https://bobtranslate.com/service/translate/azureopenai.html"
-        });
-        return;
-    }
-
-    const header = buildHeader(isAzureServiceProvider, apiKey);
-    (async () => {
-        $http.request({
-            method: "GET",
-            url: baseUrl+apiUrlPath,
-            header: header,
-            handler: function(resp) {
-                if (resp.data.error) {
-                    const { statusCode } = resp.response;
-                    const reason = (statusCode >= 400 && statusCode < 500) ? "param" : "api";
-                    handleValidateError(completion, {
-                        type: reason,
-                        message: resp.data.error,
-                        troubleshootingLink: "https://bobtranslate.com/service/translate/openai.html"
-                    });
-                    return;
-                }
-                const modelList = resp.data
-                if (modelList.data?.length > 0) {
-                    completion({
-                        result: true,
-                    })
-                }
-            }
-        });
-    })().catch((err) => {
-        handleValidateError(completion, err);
-    });
-}
-
-function pluginTimeoutInterval() {
-    return 60;
-}
-
-exports.pluginTimeoutInterval = pluginTimeoutInterval;
-exports.pluginValidate = pluginValidate;
 exports.supportLanguages = supportLanguages;
 exports.translate = translate;
