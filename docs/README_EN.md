@@ -1,3 +1,52 @@
+## Google Gemini Translator Bob Plugin
+
+> Forked from https://github.com/yetone/bob-plugin-openai-translator
+
+## Main Changes
+
+1. Reverted the code version to v0.4.5 of the original repo to adapt to Bob Community Edition.
+2. Switched from OpenAI api to Google Gemini api.
+
+## Advantages
+
+1. Gemini API has a free quota of `60 requests/min`, no payment required.
+2. Gemini is extremely fast with long texts, only slightly slower than DeepL.
+
+## Usage
+
+### Prepare API Key
+1. Open https://makersuite.google.com/app/apikey
+2. Login to your Google account (skip if already logged in)
+3. Click Create API Key in new project
+![Alt text](/docs/images/google-greate-api-key.png)
+4. Click Copy and save the API Key for later use
+![Alt text](/docs/images/google-copy-api-key.png)
+
+### Plugin installation and configuration
+1. Download and install bob, any version `> 0.5.0` is fine (skip if already installed)
+2. Click release on the right
+![Alt text](/docs/images/github-to-releases.png)
+3. Download the file ending with `.bobplugin`
+![Alt text](/docs/images/github-download.png)
+4. Double-click on it on Mac
+![Alt text](/docs/images/macos-finder.png)
+5. Confirm installation
+![Alt text](/docs/images/macos-install-success.png)
+6. Open Bob's settings page (find it in any page with `Command+,`, or in the status bar menu, or in the upper right corner of the translation page)
+7. Select `Translation` > `Services`, and click the `+` button in the lower left corner
+![Alt text](/docs/images/bob-open-add-service-menu.png)
+8. Select `Gemini Translator`
+![Alt text](/docs/images/bob-add-gemini-service.png)
+9. Enter the API Key you saved earlier
+![Alt text](/docs/images/bob-enter-api-key.png)
+10. Click the `Save` button
+![Alt text](/docs/images/bob-save.png)
+11. Now you can use it in bob translation interface
+> If you have any questions, please submit an issue, PR is welcome
+
+---
+## README.bak
+
 <h4 align="right">
   <a href="https://github.com/yetone/bob-plugin-openai-translator/blob/main/README.md">简体中文</a> | <strong>English</strong>
 </h4>

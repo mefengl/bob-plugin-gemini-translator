@@ -26,14 +26,13 @@ function ensureHttpsAndNoTrailingSlash(url) {
  * @param {string} apiKey - The authentication API key.
  * @returns {{
 *   "Content-Type": string;
-*   "api-key"?: string;
-*   "Authorization"?: string;
+*   "x-goog-api-key"?: string;
 * }} The header object.
 */
 function buildHeader(isAzureServiceProvider, apiKey) {
     return {
         "Content-Type": "application/json",
-        [isAzureServiceProvider ? "api-key" : "Authorization"]: isAzureServiceProvider ? apiKey : `Bearer ${apiKey}`
+        "x-goog-api-key": apiKey,
     };
 }
 
@@ -84,18 +83,17 @@ function generatePrompts(query) {
  * @param {typeof ChatGPTModels[number]} model
  * @param {boolean} isChatGPTModel
  * @param {Bob.TranslateQuery} query
- * @returns {{ 
- *  model: typeof ChatGPTModels[number];
- *  temperature: number;
- *  max_tokens: number;
- *  top_p: number;
- *  frequency_penalty: number;
- *  presence_penalty: number;
- *  messages?: {
- *    role: "system" | "user";
- *    content: string;
- *  }[];
- *  prompt?: string;
+ * @returns {{
+ * generationConfig: {
+ *   temperature: number;
+ *   maxOutputTokens: number;
+ *   topP: number;
+ * }
+ * contents?: {
+ *   parts: {
+ *     text: string;
+ *   }[];
+ * }[];
  * }}
 */
 function buildRequestBody(model, isChatGPTModel, query) {
@@ -108,32 +106,21 @@ function buildRequestBody(model, isChatGPTModel, query) {
     : generatePrompts(query);
 
     const standardBody = {
-        model,
-        temperature: 0,
-        max_tokens: 1000,
-        top_p: 1,
-        frequency_penalty: 1,
-        presence_penalty: 1,
+        generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 1000,
+            topP: 1,
+        },
     };
 
-    if (isChatGPTModel) {
-        return {
-            ...standardBody,
-            messages: [
-                {
-                    role: "system",
-                    content: systemPrompt,
-                },
-                {
-                    role: "user",
-                    content: userPrompt,
-                },
-            ],
-        };
-    }
     return {
         ...standardBody,
-        prompt: userPrompt,
+        contents: [{
+            "parts":[
+                {"text": systemPrompt},
+                {"text": userPrompt}
+            ]
+        }],
     };
 }
 
@@ -162,9 +149,9 @@ function handleError(completion, result) {
  * @returns {void}
 */
 function handleResponse(completion, isChatGPTModel, query, result) {
-    const { choices } = result.data;
+    const { candidates } = result.data;
 
-    if (!choices || choices.length === 0) {
+    if (!candidates || candidates.length === 0) {
         completion({
             error: {
                 type: "api",
@@ -175,7 +162,7 @@ function handleResponse(completion, isChatGPTModel, query, result) {
         return;
     }
 
-    let targetText = (isChatGPTModel ? choices[0].message.content : choices[0].text).trim();
+    let targetText = candidates[0].content.parts[0].text.trim();
 
     // 使用正则表达式删除字符串开头和结尾的特殊字符
     targetText = targetText.replace(/^(『|「|"|“)|(』|」|"|”)$/g, "");
@@ -223,7 +210,7 @@ function translate(query, completion) {
     const apiKeySelection = trimmedApiKeys.split(",").map(key => key.trim());
     const apiKey = apiKeySelection[Math.floor(Math.random() * apiKeySelection.length)];
 
-    const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://api.openai.com");
+    const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent");
     
     const isChatGPTModel = ChatGPTModels.includes(model);
     const isAzureServiceProvider = modifiedApiUrl.includes("openai.azure.com");
@@ -250,7 +237,7 @@ function translate(query, completion) {
     (async () => {
         const result = await $http.request({
             method: "POST",
-            url: modifiedApiUrl + apiUrlPath,
+            url: modifiedApiUrl,
             header,
             body,
         });
