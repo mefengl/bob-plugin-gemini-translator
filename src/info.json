@@ -24,6 +24,30 @@
       "desc": "必填项。可以用英文逗号分割多个 API KEY 以实现额度加倍及负载均衡"
     },
     {
+      "identifier": "promptType",
+      "type": "menu",
+      "title": "不止翻译",
+      "defaultValue": "translate",
+      "menuValues": [
+        {
+          "title": "翻译",
+          "value": "translate"
+        },
+        {
+          "title": "斧正",
+          "value": "correct"
+        },
+        {
+          "title": "简化",
+          "value": "simplify"
+        },
+        {
+          "title": "头脑风暴",
+          "value": "brainstorm"
+        }
+      ]
+    },
+    {
       "identifier": "customSystemPrompt",
       "type": "text",
       "title": "Sys PPT",

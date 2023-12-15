@@ -1,14 +1,6 @@
 //@ts-check
 
 var lang = require("./lang.js");
-var ChatGPTModels = [
-    "gpt-3.5-turbo",
-    "gpt-3.5-turbo-0301",
-    "gpt-4",
-    "gpt-4-0314",
-    "gpt-4-32k",
-    "gpt-4-32k-0314",
-];
 
 /**
  * @param {string}  url
@@ -38,12 +30,12 @@ function buildHeader(isAzureServiceProvider, apiKey) {
 
 /**
  * @param {Bob.TranslateQuery} query
- * @returns {{ 
- *  systemPrompt: string, 
- *  userPrompt: string 
+ * @returns {{
+ *  systemPrompt: string,
+ *  userPrompt: string
  * }}
 */
-function generatePrompts(query) {
+function generateTranslatePrompts(query) {
     let systemPrompt = "You are a translation engine that can only translate text and cannot interpret it.";
     let userPrompt = `translate from ${lang.langMap.get(query.detectFrom) || query.detectFrom} to ${lang.langMap.get(query.detectTo) || query.detectTo}`;
 
@@ -80,8 +72,41 @@ function generatePrompts(query) {
 }
 
 /**
- * @param {typeof ChatGPTModels[number]} model
- * @param {boolean} isChatGPTModel
+ * @param {Bob.TranslateQuery} query
+ * @param {string} promptType - The type of prompt (e.g., translate, correct, simplify, brainstorm).
+ * @returns {{
+ *  systemPrompt: string,
+ *  userPrompt: string
+ * }}
+*/
+function generatePrompts(query, promptType) {
+    let systemPrompt = "";
+    let userPrompt = "";
+
+    switch (promptType) {
+        case "correct":
+            systemPrompt = "You are a text correction tool. Improve the following text by correcting grammatical errors and making the language more natural, as if written by a native speaker.";
+            userPrompt = `Improve this text:\n\n"${query.text}" =>`;
+            break;
+        case "simplify":
+            systemPrompt = "You are a text simplification tool. Simplify the following text by eliminating unnecessary adjectives and adverbs, restructuring sentences, and expressing the ideas more concisely and directly, like a meticulous editor.";
+            userPrompt = `Simplify this text:\n\n"${query.text}" =>`;
+            break;
+        case "brainstorm":
+            systemPrompt = "You are a brainstorming assistant. Generate creative and diverse ideas based on the following text, considering different roles, perspectives, unconventional solutions, potential shortcuts, and fundamental principles.";
+            userPrompt = `Brainstorm on this topic:\n\n"${query.text}" =>`;
+            break;
+        default:
+            return generateTranslatePrompts(query);
+    }
+
+    userPrompt = `${userPrompt}:\n\n"${query.text}" =>`;
+
+    return { systemPrompt, userPrompt };
+}
+
+/**
+ * @param {string} promptType
  * @param {Bob.TranslateQuery} query
  * @returns {{
  * generationConfig: {
@@ -96,14 +121,19 @@ function generatePrompts(query) {
  * }[];
  * }}
 */
-function buildRequestBody(model, isChatGPTModel, query) {
+function buildRequestBody(promptType, query) {
     const { customSystemPrompt, customUserPrompt } = $option;
-    const { systemPrompt, userPrompt } = customSystemPrompt || customUserPrompt 
-    ? {
-        systemPrompt: customSystemPrompt || "You are ChatGPT, a large language model trained by OpenAI. Follow the user's instructions carefully.",
-        userPrompt: `${customUserPrompt}:\n\n"${query.text}"`,
-    } 
-    : generatePrompts(query);
+
+    let systemPrompt, userPrompt;
+
+    if (customSystemPrompt || customUserPrompt) {
+        systemPrompt = customSystemPrompt || "You are ChatGPT, a large language model trained by OpenAI. Follow the user's instructions carefully.";
+        userPrompt = `${customUserPrompt}:\n\n"${query.text}"`;
+    } else {
+        const prompts = generatePrompts(query, promptType);
+        systemPrompt = prompts.systemPrompt;
+        userPrompt = prompts.userPrompt;
+    }
 
     const standardBody = {
         generationConfig: {
@@ -143,12 +173,11 @@ function handleError(completion, result) {
 
 /**
  * @param {Bob.Completion} completion
- * @param {boolean} isChatGPTModel
  * @param {Bob.TranslateQuery} query
  * @param {Bob.HttpResponse} result
  * @returns {void}
 */
-function handleResponse(completion, isChatGPTModel, query, result) {
+function handleResponse(completion, query, result) {
     const { candidates } = result.data;
 
     if (!candidates || candidates.length === 0) {
@@ -195,7 +224,7 @@ function translate(query, completion) {
         });
     }
 
-    const { model, apiKeys, apiUrl, deploymentName } = $option;
+    const { promptType, apiKeys, apiUrl, deploymentName } = $option;
 
     if (!apiKeys) {
         completion({
@@ -212,27 +241,9 @@ function translate(query, completion) {
 
     const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent");
     
-    const isChatGPTModel = ChatGPTModels.includes(model);
     const isAzureServiceProvider = modifiedApiUrl.includes("openai.azure.com");
-    let apiUrlPath = isChatGPTModel ? "/v1/chat/completions" : "/v1/completions";
-    
-    if (isAzureServiceProvider) {
-        if (deploymentName) {
-            apiUrlPath = `/openai/deployments/${deploymentName}`;
-            apiUrlPath += isChatGPTModel ? "/chat/completions?api-version=2023-03-15-preview" : "/completions?api-version=2022-12-01";
-        } else {
-            completion({
-                error: {
-                    type: "secretKey",
-                    message: "配置错误 - 未填写 Deployment Name",
-                    addtion: "请在插件配置中填写 Deployment Name",
-                },
-            });
-        } 
-    }
-
     const header = buildHeader(isAzureServiceProvider, apiKey);
-    const body = buildRequestBody(model, isChatGPTModel, query);
+    const body = buildRequestBody(promptType, query);
 
     (async () => {
         const result = await $http.request({
@@ -245,7 +256,7 @@ function translate(query, completion) {
         if (result.error) {
             handleError(completion, result);
         } else {
-            handleResponse(completion, isChatGPTModel, query, result);
+            handleResponse(completion, query, result);
         }
     })().catch((err) => {
         completion({
