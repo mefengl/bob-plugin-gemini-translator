@@ -239,7 +239,7 @@ function translate(query, completion) {
     const apiKeySelection = trimmedApiKeys.split(",").map(key => key.trim());
     const apiKey = apiKeySelection[Math.floor(Math.random() * apiKeySelection.length)];
 
-    const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent");
+    const modifiedApiUrl = ensureHttpsAndNoTrailingSlash(apiUrl || "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
     
     const isAzureServiceProvider = modifiedApiUrl.includes("openai.azure.com");
     const header = buildHeader(isAzureServiceProvider, apiKey);
