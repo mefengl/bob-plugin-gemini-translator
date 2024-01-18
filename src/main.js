@@ -85,15 +85,15 @@ function generatePrompts(query, promptType) {
 
     switch (promptType) {
         case "correct":
-            systemPrompt = "You are a text correction tool. Improve the following text by correcting grammatical errors and making the language more natural, as if written by a native speaker.";
+            systemPrompt = "You are a text embellisher, you can only embellish the text, don't interpret it.";
             userPrompt = `Improve this text:\n\n"${query.text}" =>`;
             break;
         case "simplify":
-            systemPrompt = "You are a text simplification tool. Simplify the following text by eliminating unnecessary adjectives and adverbs, restructuring sentences, and expressing the ideas more concisely and directly, like a meticulous editor.";
+            systemPrompt = "You are a text simplification tool, you can only simplify the text, don't interpret it.";
             userPrompt = `Simplify this text:\n\n"${query.text}" =>`;
             break;
         case "brainstorm":
-            systemPrompt = "You are a brainstorming assistant. Generate creative and diverse ideas based on the following text, considering different roles, perspectives, unconventional solutions, potential shortcuts, and fundamental principles.";
+            systemPrompt = "You are a brainstorming assistant, list 3 ideas for this sentence, don't interpret it.";
             userPrompt = `Brainstorm on this topic:\n\n"${query.text}" =>`;
             break;
         default:
