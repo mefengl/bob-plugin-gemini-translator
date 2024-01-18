@@ -1,5 +1,12 @@
 {
   "identifier": "mefengl.gemini.translator",
   "versions": [
+    {
+      "version": "0.0.2",
+      "desc": "refactor(src/main.js): refactor: update prompt messages for different prompt types",
+      "sha256": "310509d293df6f17b992ebb9a46d8f75ed3df3493988eeb2f1c5ecc44de43311",
+      "url": "https://github.com/mefengl/bob-plugin-gemini-translator/releases/download/v0.0.2/gemini-translator-0.0.2.bobplugin",
+      "minBobVersion": "0.5.0"
+    }
   ]
 }
